@@ -14,9 +14,9 @@ ROOT_LIBS   := -L$(shell root-config --libdir) -lCore -lRIO -lHist -lTree -lTree
 
 DF += -I$(ROOT_INCDIR)
 CF += $(ROOT_CFLAGS)
-LF += $(ROOT_LIBS)
+LF += $(ROOT_LIBS) -L/afs/cern.ch/user/i/ivankp/local/boost-1_62/lib
 
-L_select += -lboost_program_options
+L_select += -lboost_program_options$(BOOST_SUFFIX) #-Wl,--verbose
 
 SRC := src
 BIN := bin

@@ -45,7 +45,7 @@ void validate(boost::any& v,
   }
   arr[n++] = boost::lexical_cast<T>(s.data()+prev,s.size()-prev);
 
-  if (n!=N) throw rte(s," does not have ",N," : separated fields");
+  if (n!=N) throw rte('\'',s,"\' does not have ",N," : separated fields");
 
   v = boost::any(arr);
 }
