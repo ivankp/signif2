@@ -1,5 +1,6 @@
 #include <iostream>
 #include <array>
+#include <experimental/optional>
 
 #include <boost/program_options.hpp>
 
@@ -33,7 +34,7 @@ struct hsb {
   {
     all.push_back(this);
   }
-  ~hsb() { delete tmp; }
+  //~hsb() { delete tmp; }
   static std::vector<hsb*> all;
 };
 std::vector<hsb*> hsb::all;
@@ -98,7 +99,7 @@ int main(int argc, char* argv[])
   for (const auto& f : ifname_data) ifname.emplace_back(ifname_t{&f,false});
   for (const auto& f : ifname_mc  ) ifname.emplace_back(ifname_t{&f,true });
 
-  TFile *fout = new TFile(argv[1],"recreate");
+  TFile *fout = new TFile(ofname.c_str(),"recreate");
   if (fout->IsZombie()) return 1;
   cout << "Output file: " << fout->GetName() << endl;
 
@@ -131,10 +132,11 @@ int main(int argc, char* argv[])
     TTreeReader reader("CollectionTree", file);
     TTreeReaderValue<Char_t>  isPassed (reader, "HGamEventInfoAuxDyn.isPassed");
     TTreeReaderValue<Float_t> weight   (reader, "HGamEventInfoAuxDyn.weight");
-    TTreeReaderValue<Float_t> cs_br_fe (reader,
+    std::experimental::optional<TTreeReaderValue<Float_t>> cs_br_fe;
+    if (f.is_mc) cs_br_fe.emplace(reader,
       "HGamEventInfoAuxDyn.crossSectionBRfilterEff");
-    TTreeReaderValue<Float_t> m_yy     (reader, "HGamTruthEventInfoAuxDyn.m_yy");
-    TTreeReaderValue<Int_t>   N_j_30   (reader, "HGamTruthEventInfoAuxDyn.N_j_30");
+    TTreeReaderValue<Float_t> m_yy     (reader, "HGamEventInfoAuxDyn.m_yy");
+    TTreeReaderValue<Int_t>   N_j_30   (reader, "HGamEventInfoAuxDyn.N_j_30");
     TTreeReaderValue<Float_t> Dphi_j_j (reader, "HGamEventInfoAuxDyn.Dphi_j_j");
     TTreeReaderValue<Float_t> Dy_j_j   (reader, "HGamEventInfoAuxDyn.Dy_j_j");
 
@@ -150,8 +152,8 @@ int main(int argc, char* argv[])
         h_Dy_j_j  .tmp->Fill(*Dy_j_j  );
       } else { // signal from MC
         if (!in(*m_yy,mass_window)) continue;
-        h_Dphi_j_j.tmp->Fill(*Dphi_j_j,*weight**cs_br_fe);
-        h_Dy_j_j  .tmp->Fill(*Dy_j_j  ,*weight**cs_br_fe);
+        h_Dphi_j_j.tmp->Fill(*Dphi_j_j,*weight***cs_br_fe);
+        h_Dy_j_j  .tmp->Fill(*Dy_j_j  ,*weight***cs_br_fe);
       }
     }
 
