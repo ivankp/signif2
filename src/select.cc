@@ -1,5 +1,6 @@
 #include <iostream>
 #include <array>
+#include <memory>
 #include <experimental/optional>
 
 #include <boost/program_options.hpp>
@@ -9,6 +10,7 @@
 #include <TTreeReaderValue.h>
 #include <TH1.h>
 #include <TKey.h>
+#include <TVectorT.h>
 
 #include "runtime_exception.hh"
 #define IVANP_ARRAY_BOOST_PO
@@ -34,10 +36,14 @@ struct hsb {
   {
     all.push_back(this);
   }
-  //~hsb() { delete tmp; }
+  ~hsb() { delete tmp; }
   static std::vector<hsb*> all;
 };
 std::vector<hsb*> hsb::all;
+
+inline double operator!(const std::array<double,2>& a) noexcept {
+  return a[1]-a[0];
+}
 
 int main(int argc, char* argv[])
 {
@@ -99,15 +105,13 @@ int main(int argc, char* argv[])
   for (const auto& f : ifname_data) ifname.emplace_back(ifname_t{&f,false});
   for (const auto& f : ifname_mc  ) ifname.emplace_back(ifname_t{&f,true });
 
-  TFile *fout = new TFile(ofname.c_str(),"recreate");
-  if (fout->IsZombie()) return 1;
-  cout << "Output file: " << fout->GetName() << endl;
+  TH1::AddDirectory(kFALSE);
 
   hsb h_Dphi_j_j("Dphi_j_j",nbins,0,M_PI),
       h_Dy_j_j("Dy_j_j",nbins,0,8.8);
 
   for (const auto& f : ifname) {
-    TFile* file = new TFile(f.name->c_str(),"read");
+    auto file = std::make_unique<TFile>(f.name->c_str(),"read");
     if (file->IsZombie()) return 1;
 
     cout << ( f.is_mc ? "MC:" : "Data:" ) << ' '
@@ -129,7 +133,7 @@ int main(int argc, char* argv[])
       }
     }
 
-    TTreeReader reader("CollectionTree", file);
+    TTreeReader reader("CollectionTree", file.get());
     TTreeReaderValue<Char_t>  isPassed (reader, "HGamEventInfoAuxDyn.isPassed");
     TTreeReaderValue<Float_t> weight   (reader, "HGamEventInfoAuxDyn.weight");
     std::experimental::optional<TTreeReaderValue<Float_t>> cs_br_fe;
@@ -161,17 +165,50 @@ int main(int argc, char* argv[])
       (f.is_mc ? h->sig : h->bkg)->Add(h->tmp,1./n_all);
 
     for (auto* h : hsb::all) h->tmp->Reset();
-
-    file->Close();
-    delete file;
   }
+  for (auto* h : hsb::all) h->bkg->Scale(!mass_window/(!mass_range-!mass_window));
   for (auto* h : hsb::all) h->sig->Scale(lumi);
 
-  // TODO: store info in the root file
+  auto fout = std::make_unique<TFile>(ofname.c_str(),"recreate");
+  if (fout->IsZombie()) return 1;
+  cout << "Output file: " << fout->GetName() << endl;
+  fout->cd();
+
+  std::stringstream ss;
+  ss << "Background is estimated from data, using events inside mass range, but outside mass window.\n"
+    "Signal is estimated from MC, using events inside mass window.\n"
+    "signif = (fl×s)/sqrt(s+fw×b)\n"
+    "fl = sqrt(wanted lumi/data lumi)\n"
+    "fw = |mass window|/(|mass range|-|mass window|)\n"
+    "The signal is written for fl = 1.\n"
+    "The background is written multiplied by fw.";
+  TNamed("note", ss.str().c_str()).Write();
+
+  for (auto* h : hsb::all) {
+    h->sig->SetDirectory(fout.get());
+    h->bkg->SetDirectory(fout.get());
+  }
+
+  auto write_d = [](const char* name, const std::vector<double> d){
+    TVectorD v(d.size(),d.data());
+    v.Write(name);
+  };
+
+  write_d("lumi",{lumi});
+  write_d("mass_range",{mass_range[0],mass_range[1]});
+  write_d("mass_window",{mass_window[0],mass_window[1]});
+
+  // TVectorD lumi_v(1);
+  // lumi_v[0] = lumi;
+  // lumi_v.Write("lumi");
+
+  ss.str({});
+  for (const auto& f : ifname_data) ss << f << '\n';
+  for (const auto& f : ifname_mc  ) ss << f << '\n';
+  TNamed("input_files", ss.str().c_str()).Write();
+  //ifiles.Write();
 
   fout->Write();
-  fout->Close();
-  delete fout;
 
   return 0;
 }
