@@ -25,12 +25,18 @@ namespace po = boost::program_options;
 struct ifname_t { const std::string *name; bool is_mc; };
 
 struct hsb {
-  TH1D *sig, *bkg;
+  TH1D *sig, *bkg, *tmp;
   hsb(const std::string& name, unsigned nbins, double xmin, double xmax)
   : sig(new TH1D((name+"_sig").c_str(),"",nbins,xmin,xmax)),
-    bkg(new TH1D((name+"_bkg").c_str(),"",nbins,xmin,xmax))
-  { }
+    bkg(new TH1D((name+"_bkg").c_str(),"",nbins,xmin,xmax)),
+    tmp(new TH1D("","",nbins,xmin,xmax))
+  {
+    all.push_back(this);
+  }
+  ~hsb() { delete tmp; }
+  static std::vector<hsb*> all;
 };
+std::vector<hsb*> hsb::all;
 
 int main(int argc, char* argv[])
 {
@@ -121,8 +127,6 @@ int main(int argc, char* argv[])
         break;
       }
     }
-    // TODO: merge using n_all
-    //       divide histograms individually for each process (mc) by n_all
 
     TTreeReader reader("CollectionTree", file);
     TTreeReaderValue<Char_t>  isPassed (reader, "HGamEventInfoAuxDyn.isPassed");
@@ -142,19 +146,24 @@ int main(int argc, char* argv[])
       if (!f.is_mc) { // background from data
         if (!in(*m_yy,mass_range)) continue;
         // Assuming weight in data files is always 1
-        h_Dphi_j_j.bkg->Fill(*Dphi_j_j);
-        h_Dy_j_j  .bkg->Fill(*Dy_j_j  );
+        h_Dphi_j_j.tmp->Fill(*Dphi_j_j);
+        h_Dy_j_j  .tmp->Fill(*Dy_j_j  );
       } else { // signal from MC
         if (!in(*m_yy,mass_window)) continue;
-        h_Dphi_j_j.sig->Fill(*Dphi_j_j,*weight**cs_br_fe*lumi);
-        h_Dy_j_j  .sig->Fill(*Dy_j_j  ,*weight**cs_br_fe*lumi);
+        h_Dphi_j_j.tmp->Fill(*Dphi_j_j,*weight**cs_br_fe);
+        h_Dy_j_j  .tmp->Fill(*Dy_j_j  ,*weight**cs_br_fe);
       }
-      // TODO: multiply hists by lumi at the end instead of in the loop
     }
+
+    for (auto* h : hsb::all)
+      (f.is_mc ? h->sig : h->bkg)->Add(h->tmp,1./n_all);
+
+    for (auto* h : hsb::all) h->tmp->Reset();
 
     file->Close();
     delete file;
   }
+  for (auto* h : hsb::all) h->sig->Scale(lumi);
 
   // TODO: store info in the root file
 
