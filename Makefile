@@ -10,13 +10,14 @@ LF := $(STD) #-flto
 
 ROOT_INCDIR := $(shell root-config --incdir)
 ROOT_CFLAGS := -pthread -Wno-deprecated-declarations -m64 -I$(ROOT_INCDIR)
-ROOT_LIBS   := -L$(shell root-config --libdir) -lCore -lRIO -lHist -lTree -lTreePlayer -pthread -lm -ldl -rdynamic
+ROOT_LIBS   := -L$(shell root-config --libdir) -lCore -lRIO -lHist -lTree -lMatrix -lTreePlayer -pthread -lm -ldl -rdynamic
 
 DF += -I$(ROOT_INCDIR)
 CF += $(ROOT_CFLAGS)
-LF += $(ROOT_LIBS) -L/afs/cern.ch/user/i/ivankp/local/boost-1_62/lib
+LF += -L/afs/cern.ch/user/i/ivankp/local/boost-1_62/lib $(ROOT_LIBS)
 
 L_select += -lboost_program_options$(BOOST_SUFFIX) #-Wl,--verbose
+L_optimize += $(L_select)
 
 SRC := src
 BIN := bin
@@ -37,6 +38,9 @@ all: $(EXES)
 ifeq (0, $(words $(findstring $(MAKECMDGOALS), $(NODEPS))))
 -include $(DEPS)
 endif
+
+$(BIN)/select: $(BLD)/hsb.o
+$(BIN)/optimize: $(BLD)/hsb.o
 
 $(DEPS): $(BLD)/%.d: $(SRC)/%.cc | $(BLD)
 	$(CXX) $(DF) -MM -MT '$(@:.d=.o)' $< -MF $@

@@ -16,6 +16,7 @@
 #define IVANP_ARRAY_BOOST_PO
 #include "array_ops.hh"
 #include "timed_counter.hh"
+#include "hsb.hh"
 
 using std::cout;
 using std::cerr;
@@ -26,20 +27,6 @@ namespace po = boost::program_options;
   std::cout <<"\033[36m"<< #var <<"\033[0m"<< " = " << var << std::endl;
 
 struct ifname_t { const std::string *name; bool is_mc; };
-
-struct hsb {
-  TH1D *sig, *bkg, *tmp;
-  hsb(const std::string& name, unsigned nbins, double xmin, double xmax)
-  : sig(new TH1D((name+"_sig").c_str(),"",nbins,xmin,xmax)),
-    bkg(new TH1D((name+"_bkg").c_str(),"",nbins,xmin,xmax)),
-    tmp(new TH1D("","",nbins,xmin,xmax))
-  {
-    all.push_back(this);
-  }
-  ~hsb() { delete tmp; }
-  static std::vector<hsb*> all;
-};
-std::vector<hsb*> hsb::all;
 
 inline double operator!(const std::array<double,2>& a) noexcept {
   return a[1]-a[0];
@@ -189,7 +176,7 @@ int main(int argc, char* argv[])
     h->bkg->SetDirectory(fout.get());
   }
 
-  auto write_d = [](const char* name, const std::vector<double> d){
+  auto write_d = [](const char* name, const std::vector<double>& d){
     TVectorD v(d.size(),d.data());
     v.Write(name);
   };
@@ -198,15 +185,10 @@ int main(int argc, char* argv[])
   write_d("mass_range",{mass_range[0],mass_range[1]});
   write_d("mass_window",{mass_window[0],mass_window[1]});
 
-  // TVectorD lumi_v(1);
-  // lumi_v[0] = lumi;
-  // lumi_v.Write("lumi");
-
   ss.str({});
   for (const auto& f : ifname_data) ss << f << '\n';
   for (const auto& f : ifname_mc  ) ss << f << '\n';
   TNamed("input_files", ss.str().c_str()).Write();
-  //ifiles.Write();
 
   fout->Write();
 
