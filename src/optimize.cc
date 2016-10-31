@@ -89,16 +89,17 @@ int main(int argc, char* argv[])
 
       if (!(var[1]=="sig" || var[1]=="bkg")) continue;
 
-      auto it = std::find_if(hbuff.begin(),hbuff.end(),
+      auto rit = std::find_if(hbuff.rbegin(),hbuff.rend(),
         [&name = var[0]](decltype(hbuff)::const_reference x){
           return (x.first == name);
         }
       );
-      if (it==hbuff.end()) {
-        hbuff.emplace_back(var[0],std::array<TKey*,2>{nullptr,nullptr});
-        it = --hbuff.end();
+      if (rit==hbuff.rend()) {
+        using second_t = decltype(hbuff)::value_type::second_type;
+        hbuff.emplace_back(var[0],second_t{nullptr,nullptr});
+        rit = hbuff.rbegin();
       }
-      it->second[var[1]=="sig" ? 0 : 1] = key;
+      rit->second[var[1]=="sig" ? 0 : 1] = key;
     }
     for (auto& buff : hbuff) {
       if (buff.second[0]==nullptr || buff.second[1]==nullptr)

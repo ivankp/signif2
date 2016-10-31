@@ -5,7 +5,7 @@
 CXX := g++
 STD := -std=c++1z
 DF := $(STD)
-CF := $(STD) -Wall -fmax-errors=3 #-Og #-flto
+CF := $(STD) -Wall -fmax-errors=3 -Og #-flto
 LF := $(STD) #-flto
 
 ROOT_INCDIR := $(shell root-config --incdir)

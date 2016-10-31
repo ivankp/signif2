@@ -10,6 +10,8 @@ hsb::hsb(const std::string& name, unsigned nbins, double xmin, double xmax)
   all.push_back(this);
 }
 
-hsb::hsb(TH1D* sig, TH1D* bkg): sig(sig), bkg(bkg) {
+hsb::hsb(TH1D* sig, TH1D* bkg)
+: sig(sig), bkg(bkg), tmp(nullptr)
+{
   all.push_back(this);
 }
