@@ -11,7 +11,6 @@
 
 #include "runtime_exception.hh"
 #include "timed_counter.hh"
-// #include "hsb.hh"
 
 using std::cout;
 using std::cerr;
@@ -29,23 +28,25 @@ inline unsigned nbins(const H* h) noexcept {
 template <typename H1, typename H2, typename... Hs>
 inline unsigned nbins(const H1* h1, const H2* h2, const Hs*... hs) {
   const unsigned n1 = nbins(h1);
-  const unsigned n2 = nbins(h2);
+  const unsigned n2 = nbins(h2,hs...);
   if (n1!=n2) throw rte(
     "histogram ",h2->GetName()," has ",n2," bins instead of expected ",n1);
-  return nbins(h2,hs...);
+  return n1;
 }
 
 struct var_sb {
   struct sb {
-    double sig, bkg;
-    sb(): sig(0.), bkg(0.) { }
-    sb(double sig, double bkg): sig(sig), bkg(bkg) { }
+    double sig, bkg, up;
+    sb(): sig(0.), bkg(0.), up(0.) { }
+    sb(double sig, double bkg, double up): sig(sig), bkg(bkg), up(up) { }
     inline void operator+=(const sb& x) noexcept {
       sig += x.sig;
       bkg += x.bkg;
+      up = x.up;
     }
     inline double signif() const noexcept {
-      return sig/sqrt(sig+bkg);
+      const double spb = sig + bkg;
+      return (__builtin_expect(spb>0.,1) ? sig/sqrt(spb) : 0.);
     }
   };
   std::string name;
@@ -57,8 +58,8 @@ struct var_sb {
     bins.reserve(n);
     auto * sig_arr = sig->GetArray();
     auto * bkg_arr = bkg->GetArray();
-    for (unsigned i=0; i<n; ++i) {
-      bins.emplace_back(sig_arr[i],bkg_arr[i]);
+    for (unsigned i=1; i<=n; ++i) {
+      bins.emplace_back(sig_arr[i],bkg_arr[i],sig->GetBinLowEdge(i+1));
     }
   }
   inline sb& operator[](unsigned i) noexcept { return bins[i]; }
@@ -112,9 +113,9 @@ int main(int argc, char* argv[])
   auto& mass_range  = *dynamic_cast<TVectorD*>(fin->Get("mass_range"));
   auto& mass_window = *dynamic_cast<TVectorD*>(fin->Get("mass_window"));
   auto& input_lumi  = *dynamic_cast<TVectorD*>(fin->Get("lumi"));
-  const double fl = std::sqrt(scaled_lumi/input_lumi[0]);
 
   if (scaled_lumi==0.) scaled_lumi = input_lumi[0];
+  const double fl = std::sqrt(scaled_lumi/input_lumi[0]);
 
   cout << "mass_range  = ("<<mass_range[0]/1e3 <<','<<mass_range[1]/1e3<<") GeV"<<endl;
   cout << "mass_window = ("<<mass_window[0]/1e3 <<','<<mass_window[1]/1e3<<") GeV"<<endl;
@@ -173,7 +174,7 @@ int main(int argc, char* argv[])
         var[a] += var[b++];
         if (b==n) break;
       }
-      cout << fl*var[a].signif() << endl;
+      cout << fl*var[a].signif() << ' ' << var[a].up << endl;
       a = b;
     }
   }
