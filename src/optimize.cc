@@ -1,5 +1,6 @@
 #include <iostream>
 #include <algorithm>
+#include <cmath>
 
 #include <boost/program_options.hpp>
 
@@ -10,7 +11,7 @@
 
 #include "runtime_exception.hh"
 #include "timed_counter.hh"
-#include "hsb.hh"
+// #include "hsb.hh"
 
 using std::cout;
 using std::cerr;
@@ -19,6 +20,49 @@ namespace po = boost::program_options;
 
 #define test(var) \
   std::cout <<"\033[36m"<< #var <<"\033[0m"<< " = " << var << std::endl;
+
+template <typename H>
+inline unsigned nbins(const H* h) noexcept {
+  return h->GetNbinsX();
+}
+
+template <typename H1, typename H2, typename... Hs>
+inline unsigned nbins(const H1* h1, const H2* h2, const Hs*... hs) {
+  const unsigned n1 = nbins(h1);
+  const unsigned n2 = nbins(h2);
+  if (n1!=n2) throw rte(
+    "histogram ",h2->GetName()," has ",n2," bins instead of expected ",n1);
+  return nbins(h2,hs...);
+}
+
+struct var_sb {
+  struct sb {
+    double sig, bkg;
+    sb(): sig(0.), bkg(0.) { }
+    sb(double sig, double bkg): sig(sig), bkg(bkg) { }
+    inline void operator+=(const sb& x) noexcept {
+      sig += x.sig;
+      bkg += x.bkg;
+    }
+    inline double signif() const noexcept {
+      return sig/sqrt(sig+bkg);
+    }
+  };
+  std::string name;
+  std::vector<sb> bins;
+  template <typename Name>
+  var_sb(Name&& name, TH1D* sig, TH1D* bkg)
+  : name(std::forward<Name>(name)) {
+    const unsigned n = nbins(sig,bkg);
+    bins.reserve(n);
+    auto * sig_arr = sig->GetArray();
+    auto * bkg_arr = bkg->GetArray();
+    for (unsigned i=0; i<n; ++i) {
+      bins.emplace_back(sig_arr[i],bkg_arr[i]);
+    }
+  }
+  inline sb& operator[](unsigned i) noexcept { return bins[i]; }
+};
 
 int main(int argc, char* argv[])
 {
@@ -65,16 +109,20 @@ int main(int argc, char* argv[])
   if (fin->IsZombie()) return 1;
   cout << "Input file: " << fin->GetName() << endl;
 
-  auto& mass_range  = *static_cast<TVectorD*>(fin->Get("mass_range"));
-  auto& mass_window = *static_cast<TVectorD*>(fin->Get("mass_window"));
-  auto& input_lumi  = *static_cast<TVectorD*>(fin->Get("lumi"));
+  auto& mass_range  = *dynamic_cast<TVectorD*>(fin->Get("mass_range"));
+  auto& mass_window = *dynamic_cast<TVectorD*>(fin->Get("mass_window"));
+  auto& input_lumi  = *dynamic_cast<TVectorD*>(fin->Get("lumi"));
+  const double fl = std::sqrt(scaled_lumi/input_lumi[0]);
 
   if (scaled_lumi==0.) scaled_lumi = input_lumi[0];
 
-  cout << "mass_range  = ("<<mass_range[0]/1e3 <<','<<mass_range[1]/1e3<<")"<<endl;
-  cout << "mass_window = ("<<mass_window[0]/1e3 <<','<<mass_window[1]/1e3<<")"<<endl;
+  cout << "mass_range  = ("<<mass_range[0]/1e3 <<','<<mass_range[1]/1e3<<") GeV"<<endl;
+  cout << "mass_window = ("<<mass_window[0]/1e3 <<','<<mass_window[1]/1e3<<") GeV"<<endl;
   cout << "input  lumi = " << input_lumi[0] << " pb" << endl;
   cout << "scaled lumi = " << scaled_lumi   << " pb" << endl;
+  cout << "lumi factor = " << fl << endl;
+
+  std::vector<var_sb> vars;
 
   {
     TIter next(fin->GetListOfKeys());
@@ -101,19 +149,34 @@ int main(int argc, char* argv[])
       }
       rit->second[var[1]=="sig" ? 0 : 1] = key;
     }
+    cout << "Variables:";
     for (auto& buff : hbuff) {
       if (buff.second[0]==nullptr || buff.second[1]==nullptr)
         throw rte("missing histograms for variable \'",buff.first,"\'");
-      cout << "Variable: " << buff.first << endl;
+      cout << ' ' << buff.first;
       auto hist = [&buff](unsigned i){ // get histogram from key
-        return static_cast<TH1D*>(buff.second[i]->ReadObj());
+        return dynamic_cast<TH1D*>(buff.second[i]->ReadObj());
       };
-      new hsb(hist(0),hist(1));
+      vars.emplace_back(buff.first,hist(0),hist(1));
     }
   }
-  cout << endl;
+  cout << '\n' << endl;
 
-  test(hsb::all.size())
+  for (auto& var : vars) {
+    cout << "\033[32m" << var.name << "\033[0m" << endl;
+
+    // for (auto& sb : var.bins) cout << sb.signif() << endl;
+
+    unsigned a = 0, b = 1, n = var.bins.size();
+    while (b<n) {
+      while (fl*var[a].signif()<2. || var[b].sig+var[b].bkg==0.) {
+        var[a] += var[b++];
+        if (b==n) break;
+      }
+      cout << fl*var[a].signif() << endl;
+      a = b;
+    }
+  }
 
   return 0;
 }
