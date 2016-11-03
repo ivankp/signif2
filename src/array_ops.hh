@@ -20,6 +20,11 @@ noexcept(
   return (a[0] < x && x < a[1]);
 }
 
+template <typename T>
+inline T len(const std::array<T,2>& a) noexcept {
+  return (a[1] - a[0]);
+}
+
 #ifdef IVANP_ARRAY_BOOST_PO
 
 #include "runtime_exception.hh"

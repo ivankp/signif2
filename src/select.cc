@@ -28,10 +28,6 @@ namespace po = boost::program_options;
 
 struct ifname_t { const std::string *name; bool is_mc; };
 
-inline double operator!(const std::array<double,2>& a) noexcept {
-  return a[1]-a[0];
-}
-
 int main(int argc, char* argv[])
 {
   std::vector<std::string> ifname_data, ifname_mc;
@@ -88,13 +84,16 @@ int main(int argc, char* argv[])
   mass_range  *= 1e3;
   mass_window *= 1e3;
 
+  const double fw = len(mass_window)/(len(mass_range)-len(mass_window));
+
   std::vector<ifname_t> ifname;
   for (const auto& f : ifname_data) ifname.emplace_back(ifname_t{&f,false});
   for (const auto& f : ifname_mc  ) ifname.emplace_back(ifname_t{&f,true });
 
   TH1::AddDirectory(kFALSE);
 
-  hsb h_Dphi_j_j("Dphi_j_j",nbins,0,M_PI),
+  hsb h_total("total",1,0,1),
+      h_Dphi_j_j("Dphi_j_j",nbins,0,M_PI),
       h_Dy_j_j("Dy_j_j",nbins,0,8.8);
 
   for (const auto& f : ifname) {
@@ -104,7 +103,7 @@ int main(int argc, char* argv[])
     cout << ( f.is_mc ? "MC:" : "Data:" ) << ' '
          << file->GetName() << endl;
 
-    double n_all = 1;
+    double n_all_inv = 1;
     if (f.is_mc) {
       TIter next(file->GetListOfKeys());
       TKey *key;
@@ -114,22 +113,26 @@ int main(int argc, char* argv[])
             name.substr(name.size()-18)!="_noDalitz_weighted") continue;
         TH1 *h = static_cast<TH1*>(key->ReadObj());
         cout << h->GetName() << endl;
-        n_all = h->GetBinContent(3);
-        cout << h->GetXaxis()->GetBinLabel(3) << " = " << n_all << endl;
+        n_all_inv = h->GetBinContent(3);
+        cout << h->GetXaxis()->GetBinLabel(3) << " = " << n_all_inv << endl;
+        n_all_inv = 1./n_all_inv;
         break;
       }
     }
 
     TTreeReader reader("CollectionTree", file.get());
+    std::experimental::optional<TTreeReaderValue<Float_t>> cs_br_fe, weight_br;
+    if (f.is_mc) {
+      cs_br_fe .emplace(reader, "HGamEventInfoAuxDyn.crossSectionBRfilterEff");
+      weight_br.emplace(reader, "HGamEventInfoAuxDyn.weight");
+    }
     TTreeReaderValue<Char_t>  isPassed (reader, "HGamEventInfoAuxDyn.isPassed");
-    TTreeReaderValue<Float_t> weight   (reader, "HGamEventInfoAuxDyn.weight");
-    std::experimental::optional<TTreeReaderValue<Float_t>> cs_br_fe;
-    if (f.is_mc) cs_br_fe.emplace(reader,
-      "HGamEventInfoAuxDyn.crossSectionBRfilterEff");
     TTreeReaderValue<Float_t> m_yy     (reader, "HGamEventInfoAuxDyn.m_yy");
     TTreeReaderValue<Int_t>   N_j_30   (reader, "HGamEventInfoAuxDyn.N_j_30");
     TTreeReaderValue<Float_t> Dphi_j_j (reader, "HGamEventInfoAuxDyn.Dphi_j_j");
     TTreeReaderValue<Float_t> Dy_j_j   (reader, "HGamEventInfoAuxDyn.Dy_j_j");
+
+    double weight = 1.; // Assuming weight in data files is always 1
 
     using tc = ivanp::timed_counter<Long64_t>;
     for (tc ent(reader.GetEntries(true)); reader.Next(); ++ent) {
@@ -137,23 +140,22 @@ int main(int argc, char* argv[])
       if (*N_j_30 < 2) continue;
 
       if (!f.is_mc) { // background from data
-        if (!in(*m_yy,mass_range)) continue;
-        // Assuming weight in data files is always 1
-        h_Dphi_j_j.tmp->Fill(*Dphi_j_j);
-        h_Dy_j_j  .tmp->Fill(*Dy_j_j  );
+        if (in(*m_yy,mass_window)) continue;
       } else { // signal from MC
         if (!in(*m_yy,mass_window)) continue;
-        h_Dphi_j_j.tmp->Fill(*Dphi_j_j,*weight***cs_br_fe);
-        h_Dy_j_j  .tmp->Fill(*Dy_j_j  ,*weight***cs_br_fe);
+        weight = **weight_br***cs_br_fe;
       }
     }
+    h_total.tmp->Fill(0.5);
+    h_Dphi_j_j.tmp->Fill(*Dphi_j_j,weight);
+    h_Dy_j_j  .tmp->Fill(*Dy_j_j  ,weight);
 
     for (auto* h : hsb::all)
-      (f.is_mc ? h->sig : h->bkg)->Add(h->tmp,1./n_all);
+      (f.is_mc ? h->sig : h->bkg)->Add(h->tmp,n_all_inv);
 
     for (auto* h : hsb::all) h->tmp->Reset();
   }
-  for (auto* h : hsb::all) h->bkg->Scale(!mass_window/(!mass_range-!mass_window));
+  for (auto* h : hsb::all) h->bkg->Scale(fw);
   for (auto* h : hsb::all) h->sig->Scale(lumi);
 
   auto fout = std::make_unique<TFile>(ofname.c_str(),"recreate");
@@ -162,7 +164,8 @@ int main(int argc, char* argv[])
   fout->cd();
 
   std::stringstream ss;
-  ss << "Background is estimated from data, using events inside mass range, but outside mass window.\n"
+  ss << "Background is estimated from data, "
+    "using events inside mass range, but outside mass window.\n"
     "Signal is estimated from MC, using events inside mass window.\n"
     "signif = (fl×s)/sqrt(s+fw×b)\n"
     "fl = sqrt(wanted lumi/data lumi)\n"
@@ -191,6 +194,11 @@ int main(int argc, char* argv[])
   TNamed("input_files", ss.str().c_str()).Write();
 
   fout->Write();
+
+  cout << "\033[32m Total SIG:\033[0m "
+       << h_total.sig->GetBinContent(1) << endl;
+  cout << "\033[32m Total BKG:\033[0m "
+       << h_total.bkg->GetBinContent(1) << endl;
 
   return 0;
 }
