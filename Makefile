@@ -18,6 +18,7 @@ LF += -L/afs/cern.ch/user/i/ivankp/local/boost-1_62/lib $(ROOT_LIBS)
 
 L_select += -lboost_program_options$(BOOST_SUFFIX) #-Wl,--verbose
 L_optimize += $(L_select)
+L_signif += $(L_select)
 
 SRC := src
 BIN := bin
