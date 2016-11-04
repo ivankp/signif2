@@ -96,7 +96,7 @@ int main(int argc, char* argv[])
       h_Dphi_j_j("Dphi_j_j",nbins,0,M_PI),
       h_Dy_j_j("Dy_j_j",nbins,0,8.8);
 
-  for (const auto& f : ifname) {
+  for (const auto& f : ifname) { // loop over input files
     auto file = std::make_unique<TFile>(f.name->c_str(),"read");
     if (file->IsZombie()) return 1;
 
@@ -121,13 +121,13 @@ int main(int argc, char* argv[])
     }
 
     TTreeReader reader("CollectionTree", file.get());
-    std::experimental::optional<TTreeReaderValue<Float_t>> cs_br_fe, weight_br;
+    std::experimental::optional<TTreeReaderValue<Float_t>> cs_br_fe, _weight;
     if (f.is_mc) {
-      cs_br_fe .emplace(reader, "HGamEventInfoAuxDyn.crossSectionBRfilterEff");
-      weight_br.emplace(reader, "HGamEventInfoAuxDyn.weight");
+      cs_br_fe.emplace(reader, "HGamEventInfoAuxDyn.crossSectionBRfilterEff");
+      _weight .emplace(reader, "HGamEventInfoAuxDyn.weight");
     }
     TTreeReaderValue<Char_t>  isPassed (reader, "HGamEventInfoAuxDyn.isPassed");
-    TTreeReaderValue<Float_t> m_yy     (reader, "HGamEventInfoAuxDyn.m_yy");
+    TTreeReaderValue<Float_t> _m_yy    (reader, "HGamEventInfoAuxDyn.m_yy");
     TTreeReaderValue<Int_t>   N_j_30   (reader, "HGamEventInfoAuxDyn.N_j_30");
     TTreeReaderValue<Float_t> Dphi_j_j (reader, "HGamEventInfoAuxDyn.Dphi_j_j");
     TTreeReaderValue<Float_t> Dy_j_j   (reader, "HGamEventInfoAuxDyn.Dy_j_j");
@@ -137,30 +137,35 @@ int main(int argc, char* argv[])
     using tc = ivanp::timed_counter<Long64_t>;
     for (tc ent(reader.GetEntries(true)); reader.Next(); ++ent) {
       if (!*isPassed) continue;
-      if (*N_j_30 < 2) continue;
 
-      if (!f.is_mc) { // background from data
-        if (in(*m_yy,mass_window)) continue;
-      } else { // signal from MC
-        if (!in(*m_yy,mass_window)) continue;
-        weight = **weight_br***cs_br_fe;
+      const double m_yy = *_m_yy;
+      if (!in(m_yy,mass_range)) continue;
+
+      if (f.is_mc) { // signal from MC
+        if (!in(m_yy,mass_window)) continue;
+        weight = (**_weight)*(**cs_br_fe);
+      } else { // background from data
+        if (in(m_yy,mass_window)) continue;
       }
+
+      h_total.tmp->Fill(0.5,weight);
+
+      if (*N_j_30 < 2) continue;
+      h_Dphi_j_j.tmp->Fill(*Dphi_j_j,weight);
+      h_Dy_j_j  .tmp->Fill(*Dy_j_j  ,weight);
     }
-    h_total.tmp->Fill(0.5);
-    h_Dphi_j_j.tmp->Fill(*Dphi_j_j,weight);
-    h_Dy_j_j  .tmp->Fill(*Dy_j_j  ,weight);
 
-    for (auto* h : hsb::all)
+    for (auto* h : hsb::all) { // merge histograms
       (f.is_mc ? h->sig : h->bkg)->Add(h->tmp,n_all_inv);
-
-    for (auto* h : hsb::all) h->tmp->Reset();
+      h->tmp->Reset();
+    }
   }
-  for (auto* h : hsb::all) h->bkg->Scale(fw);
-  for (auto* h : hsb::all) h->sig->Scale(lumi);
+  for (auto* h : hsb::all) h->bkg->Scale(fw);   // scale data by window factor
+  for (auto* h : hsb::all) h->sig->Scale(lumi); // scale MC to lumi
 
   auto fout = std::make_unique<TFile>(ofname.c_str(),"recreate");
   if (fout->IsZombie()) return 1;
-  cout << "Output file: " << fout->GetName() << endl;
+  cout << "\nOutput file: " << fout->GetName() << endl;
   fout->cd();
 
   std::stringstream ss;

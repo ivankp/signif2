@@ -76,8 +76,8 @@ int main(int argc, char* argv[])
     desc.add_options()
       ("input,i", po::value(&ifname)->required(),
        "input root data file")
-      ("output,o", po::value(&ofname)->required(),
-       "output root file")
+      // ("output,o", po::value(&ofname)->required(),
+      //  "output root file")
       ("conf,c", po::value(&cfname),
        "configuration file")
       ("lumi,l", po::value(&scaled_lumi)->default_value(0.),
