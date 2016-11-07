@@ -1,6 +1,7 @@
 #include <iostream>
 #include <array>
 #include <memory>
+#include <initializer_list>
 #include <experimental/optional>
 
 #include <boost/program_options.hpp>
@@ -9,6 +10,7 @@
 #include <TTreeReader.h>
 #include <TTreeReaderValue.h>
 #include <TH1.h>
+#include <TH2.h>
 #include <TKey.h>
 #include <TVectorT.h>
 
@@ -25,13 +27,23 @@ namespace po = boost::program_options;
 #define test(var) \
   std::cout <<"\033[36m"<< #var <<"\033[0m"<< " = " << var << std::endl;
 
+TH1D* make_hist(const std::string& name, const std::vector<double>& bins) {
+  return new TH1D(name.c_str(),"",bins.size()-1,bins.data());
+}
+TH2D* make_hist(const std::string& name, const std::vector<double>& xbins,
+                                         const std::vector<double>& ybins) {
+  return new TH2D(name.c_str(),"",xbins.size()-1,xbins.data(),
+                                  ybins.size()-1,ybins.data());
+}
+
 struct hsb {
-  TH1D *sig, *bkg, *tmp, *signif;
-  hsb(const std::string& name, const std::vector<double>& bins)
-  : sig(new TH1D((name+"_sig").c_str(),"",bins.size()-1,bins.data())),
-    bkg(new TH1D((name+"_bkg").c_str(),"",bins.size()-1,bins.data())),
-    tmp(new TH1D("","",bins.size()-1,bins.data())),
-    signif(new TH1D(name.c_str(),"",bins.size()-1,bins.data()))
+  TH1 *sig, *bkg, *tmp, *signif;
+  template <typename... Values>
+  hsb(const std::string& name, std::initializer_list<Values>... bins)
+  : sig(make_hist(name+"_sig",bins...)),
+    bkg(make_hist(name+"_bkg",bins...)),
+    tmp(make_hist({},bins...)),
+    signif(make_hist(name,bins...))
   { all.push_back(this); }
   ~hsb() {
     delete tmp;
@@ -39,8 +51,38 @@ struct hsb {
     delete sig;
   }
   static std::vector<hsb*> all;
+
+  inline void operator()(double x, double w) {
+    static_cast<TH1D*>(tmp)->Fill(x,w);
+  }
+  inline void operator()(double x, double y, double w) {
+    static_cast<TH2D*>(tmp)->Fill(x,y,w);
+  }
+
+  void calc_signif(double fl) { // calculate significances
+    const TArrayD& sig    = *reinterpret_cast<TArrayD*>(this->sig),
+                 & bkg    = *reinterpret_cast<TArrayD*>(this->bkg);
+          TArrayD& signif = *reinterpret_cast<TArrayD*>(this->signif);
+    for (unsigned i=0, n=sig.GetSize(); i<n; ++i) {
+      signif[i] = fl*sig[i]/sqrt(sig[i]+bkg[i]);
+    }
+  }
 };
 std::vector<hsb*> hsb::all;
+
+std::ostream& operator<<(std::ostream& o, const hsb& h) {
+  o << "\033[32m" << h.signif->GetName()  << "\033[0m\n";
+  for (int i=1, n=h.sig->GetNbinsX()+2; i<n; ++i) {
+    o << "[" << h.sig->GetBinLowEdge(i) << ',';
+    if (i==n-1) o << "\\infty";
+    else o << h.sig->GetBinLowEdge(i+1);
+    o << ") "
+      << round(h.sig->GetBinContent(i)) << ' '
+      << round(h.bkg->GetBinContent(i)) << ' '
+      << h.signif->GetBinContent(i) << endl;
+  }
+  return o;
+}
 
 struct ifname_t { const std::string *name; bool is_mc; };
 
@@ -134,24 +176,27 @@ int main(int argc, char* argv[])
 
   TH1::AddDirectory(kFALSE);
 
-  hsb h_total("total",{0.,1.}),
-      h_pT_yy("pT_yy",{0,10,15,20,30,45,60,80,115,200,400}),
-      h_yAbs_yy("yAbs_yy",{0.0,0.3,0.6,0.9,1.2,1.6,2.4}),
-      h_cosTS_yy("cosTS_yy",{0.,0.125,0.250,0.375,0.500,0.625,0.750,0.875,1.0}),
-      h_N_j_30("N_j_30",{0, 1, 2, 3, 4}),
-      h_pT_j1("pT_j1",{30,40,55,75,120,400}),
-      h_Dphi_j_j("Dphi_j_j",{0., 1.0472, 2.0944, 2.61799, 3.14159}),
-      h_Dy_j_j("Dy_j_j",{0., 2., 4., 5.5, 8.8}),
-      h_m_jj("m_jj",{0,200,400,600,1e3});
+  hsb
+    h_total("total",{0.,1.}),
+    h_pT_yy("pT_yy",{0.,10.,15.,20.,30.,45.,60.,80.,120.,200.,400.}),
+    h_yAbs_yy("yAbs_yy",{0.0,0.3,0.6,0.9,1.2,1.6,2.4}),
+    h_cosTS_yy("cosTS_yy",{0.,0.125,0.250,0.375,0.500,0.625,0.750,0.875,1.0}),
+    h_N_j_30("N_j_30",{0., 1., 2., 3., 4.}),
+    h_pT_j1("pT_j1",{30.,40.,55.,75.,120.,400.}),
+    h_Dphi_j_j("Dphi_j_j",{0., 1.0472, 2.0944, 2.61799, 3.14159}),
+    h_Dy_j_j("Dy_j_j",{0., 2., 4., 5.5, 8.8}),
+    h_m_jj("m_jj",{0.,200.,400.,600.,1e3}),
 
-      // h_pT_yy("pT_yy",{0,10,15,20,30,45,60,80,115,150,200,260,400}),
-      // h_yAbs_yy("yAbs_yy",{0.0,0.15,0.3,0.45,0.6,0.75,0.9,1.2,1.6,2.4}),
-      // h_cosTS_yy("cosTS_yy",{0.,0.0625,0.125,0.1875,0.250,0.3125,0.375,0.4375,0.500,0.625,1.0}),
-      // h_N_j_30("N_j_30",{0, 1, 2, 3, 4}),
-      // h_pT_j1("pT_j1",{30,40,55,75,93,120,167,400}),
-      // h_Dphi_j_j("Dphi_j_j",{0., 1.0472, 2.0944, 3.14159}),
-      // h_Dy_j_j("Dy_j_j",{0., 2., 4., 5.5, 8.8}),
-      // h_m_jj("m_jj",{0,200,400,600,1e3});
+    // h_pT_yy("pT_yy",{0.,10.,15.,20.,30.,45.,60.,80.,120.,150.,200.,260.,400.}),
+    // h_yAbs_yy("yAbs_yy",{0.0,0.15,0.3,0.45,0.6,0.75,0.9,1.2,1.6,2.4}),
+    // h_cosTS_yy("cosTS_yy",{0.,0.0625,0.125,0.1875,0.250,0.3125,0.375,0.4375,0.500,0.625,1.0}),
+    // h_N_j_30("N_j_30",{0., 1., 2., 3., 4.}),
+    // h_pT_j1("pT_j1",{30.,40.,55.,75.,93.,120.,167.,400.}),
+    // h_Dphi_j_j("Dphi_j_j",{0., 1.0472, 2.0944, 3.14159}),
+    // h_Dy_j_j("Dy_j_j",{0., 2., 4., 5.5, 8.8}),
+    // h_m_jj("m_jj",{0.,200.,400.,600.,1e3}),
+
+    h_Dphi_Dy_jj("Dphi_Dy_jj",{0.,1.5708,3.14159},{0.,2.,8.8});
 
   for (const auto& f : ifname) { // loop over input files
     auto file = std::make_unique<TFile>(f.name->c_str(),"read");
@@ -212,19 +257,24 @@ int main(int argc, char* argv[])
 
       const auto nj = *N_j_30;
 
-      h_total   .tmp->Fill( 0.5             ,weight);
-      h_pT_yy   .tmp->Fill( *_pT_yy/1e3     ,weight);
-      h_yAbs_yy .tmp->Fill( *_yAbs_yy       ,weight);
-      h_cosTS_yy.tmp->Fill( abs(*_cosTS_yy) ,weight);
-      h_N_j_30  .tmp->Fill( nj              ,weight);
+      h_total   ( 0.5             ,weight);
+      h_pT_yy   ( *_pT_yy/1e3     ,weight);
+      h_yAbs_yy ( *_yAbs_yy       ,weight);
+      h_cosTS_yy( abs(*_cosTS_yy) ,weight);
+      h_N_j_30  ( nj              ,weight);
 
       if (nj < 1) continue;
-      h_pT_j1   .tmp->Fill( *_pT_j1/1e3     ,weight);
+      h_pT_j1   ( *_pT_j1/1e3     ,weight);
 
       if (nj < 2) continue;
-      h_Dphi_j_j.tmp->Fill( abs(*_Dphi_j_j) ,weight);
-      h_Dy_j_j  .tmp->Fill( abs(*_Dy_j_j)   ,weight);
-      h_m_jj    .tmp->Fill( *_m_jj/1e3      ,weight);
+      const double dphi_jj = abs(*_Dphi_j_j),
+                     dy_jj = abs(*_Dy_j_j);
+
+      h_Dphi_j_j( dphi_jj    ,weight);
+      h_Dy_j_j  (   dy_jj    ,weight);
+      h_m_jj    ( *_m_jj/1e3 ,weight);
+
+      h_Dphi_Dy_jj( dphi_jj, dy_jj, weight);
     }
 
     for (auto* h : hsb::all) { // merge histograms
@@ -240,28 +290,8 @@ int main(int argc, char* argv[])
   for (auto* h : hsb::all) {
     h->bkg->Scale(fw);      // scale data by window factor
     h->sig->Scale(lumi_in); // scale MC to lumi
-
-    // calculate significances
-    for (unsigned i=0, n=h->sig->GetNbinsX()+2; i<n; ++i) {
-      const double sig = h->sig->GetBinContent(i),
-                   bkg = h->bkg->GetBinContent(i);
-      h->signif->SetBinContent(i, fl*sig/sqrt(sig+bkg) );
-    }
-  }
-
-  // print expected numbers of events
-  for (auto* h : hsb::all) {
-    cout << "\033[32m" << h->signif->GetName()  << "\033[0m\n";
-    for (int i=1, n=h->sig->GetNbinsX()+2; i<n; ++i) {
-      cout << "[" << h->sig->GetBinLowEdge(i) << ',';
-      if (i==n-1) cout << "\\infty";
-      else cout << h->sig->GetBinLowEdge(i+1);
-      cout << ") "
-           << h->sig->GetBinContent(i) << ' '
-           << h->bkg->GetBinContent(i) << ' '
-           << h->signif->GetBinContent(i) << endl;
-    }
-    cout << endl;
+    h->calc_signif(fl);     // calculate significances
+    cout << *h << endl;     // print expected numbers of events
   }
 
   h_N_j_30.signif->SetBinContent(5,0);
