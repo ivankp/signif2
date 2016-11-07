@@ -1,7 +1,7 @@
 #!/bin/bash
 
-rxplot signif.root -o signif.pdf \
-  --yrange="0:8" --widths=4 -m '0.1:0.05:0.13:0.05' \
+rxplot signif.root signif2.root -o signif.pdf \
+  --yrange="0:5" --widths=4 -m '0.1:0.05:0.13:0.05' \
   --ticks-left --val-fmt="3.1f" --marker-size=2.2 --marker-color=1 \
   --xlabel-size=1.4 --xtitle-size=1.5 --xtitle-offset=1.0 \
   --ylabel-size=1.4 --ytitle-size=1.4 --ytitle-offset=1.0 \

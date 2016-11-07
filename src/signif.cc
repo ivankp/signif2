@@ -33,7 +33,11 @@ struct hsb {
     tmp(new TH1D("","",bins.size()-1,bins.data())),
     signif(new TH1D(name.c_str(),"",bins.size()-1,bins.data()))
   { all.push_back(this); }
-  ~hsb() { delete tmp; }
+  ~hsb() {
+    delete tmp;
+    delete bkg;
+    delete sig;
+  }
   static std::vector<hsb*> all;
 };
 std::vector<hsb*> hsb::all;
@@ -132,12 +136,22 @@ int main(int argc, char* argv[])
 
   hsb h_total("total",{0.,1.}),
       h_pT_yy("pT_yy",{0,10,15,20,30,45,60,80,115,200,400}),
-      h_yAbs_yy("yAbs_yy",{0.0, 0.6, 1.2, 1.8, 2.4}),
-      h_cosTS_yy("cosTS_yy",{0, 0.2, 0.4, 0.6, 0.8, 1}),
+      h_yAbs_yy("yAbs_yy",{0.0,0.3,0.6,0.9,1.2,1.6,2.4}),
+      h_cosTS_yy("cosTS_yy",{0.,0.125,0.250,0.375,0.500,0.625,0.750,0.875,1.0}),
       h_N_j_30("N_j_30",{0, 1, 2, 3, 4}),
-      h_pT_j1("pT_j1",{30, 50, 100, 200}),
+      h_pT_j1("pT_j1",{30,40,55,75,120,400}),
       h_Dphi_j_j("Dphi_j_j",{0., 1.0472, 2.0944, 2.61799, 3.14159}),
-      h_Dy_j_j("Dy_j_j",{0., 2., 4., 5.5, 8.8});
+      h_Dy_j_j("Dy_j_j",{0., 2., 4., 5.5, 8.8}),
+      h_m_jj("m_jj",{0,200,400,600,1e3});
+
+      // h_pT_yy("pT_yy",{0,10,15,20,30,45,60,80,115,150,200,260,400}),
+      // h_yAbs_yy("yAbs_yy",{0.0,0.15,0.3,0.45,0.6,0.75,0.9,1.2,1.6,2.4}),
+      // h_cosTS_yy("cosTS_yy",{0.,0.0625,0.125,0.1875,0.250,0.3125,0.375,0.4375,0.500,0.625,1.0}),
+      // h_N_j_30("N_j_30",{0, 1, 2, 3, 4}),
+      // h_pT_j1("pT_j1",{30,40,55,75,93,120,167,400}),
+      // h_Dphi_j_j("Dphi_j_j",{0., 1.0472, 2.0944, 3.14159}),
+      // h_Dy_j_j("Dy_j_j",{0., 2., 4., 5.5, 8.8}),
+      // h_m_jj("m_jj",{0,200,400,600,1e3});
 
   for (const auto& f : ifname) { // loop over input files
     auto file = std::make_unique<TFile>(f.name->c_str(),"read");
@@ -178,6 +192,7 @@ int main(int argc, char* argv[])
     TTreeReaderValue<Float_t> _pT_j1   (reader,"HGamEventInfoAuxDyn.pT_j1");
     TTreeReaderValue<Float_t> _Dphi_j_j(reader,"HGamEventInfoAuxDyn.Dphi_j_j");
     TTreeReaderValue<Float_t> _Dy_j_j  (reader,"HGamEventInfoAuxDyn.Dy_j_j");
+    TTreeReaderValue<Float_t> _m_jj    (reader,"HGamEventInfoAuxDyn.m_jj");
 
     double weight = 1.; // Assuming weight in data files is always 1
 
@@ -195,16 +210,21 @@ int main(int argc, char* argv[])
         if (in(m_yy,mass_window)) continue;
       }
 
+      const auto nj = *N_j_30;
+
       h_total   .tmp->Fill( 0.5             ,weight);
       h_pT_yy   .tmp->Fill( *_pT_yy/1e3     ,weight);
       h_yAbs_yy .tmp->Fill( *_yAbs_yy       ,weight);
       h_cosTS_yy.tmp->Fill( abs(*_cosTS_yy) ,weight);
-      h_N_j_30  .tmp->Fill( *N_j_30         ,weight);
+      h_N_j_30  .tmp->Fill( nj              ,weight);
+
+      if (nj < 1) continue;
       h_pT_j1   .tmp->Fill( *_pT_j1/1e3     ,weight);
 
-      if (*N_j_30 < 2) continue;
+      if (nj < 2) continue;
       h_Dphi_j_j.tmp->Fill( abs(*_Dphi_j_j) ,weight);
       h_Dy_j_j  .tmp->Fill( abs(*_Dy_j_j)   ,weight);
+      h_m_jj    .tmp->Fill( *_m_jj/1e3      ,weight);
     }
 
     for (auto* h : hsb::all) { // merge histograms
@@ -212,12 +232,39 @@ int main(int argc, char* argv[])
       h->tmp->Reset();
     }
   }
-  for (auto* h : hsb::all) h->bkg->Scale(fw);   // scale data by window factor
-  for (auto* h : hsb::all) h->sig->Scale(lumi_in); // scale MC to lumi
 
   last_bin_incl(h_N_j_30.sig);
   last_bin_incl(h_N_j_30.bkg);
   label_jet_bins(h_N_j_30.signif);
+
+  for (auto* h : hsb::all) {
+    h->bkg->Scale(fw);      // scale data by window factor
+    h->sig->Scale(lumi_in); // scale MC to lumi
+
+    // calculate significances
+    for (unsigned i=0, n=h->sig->GetNbinsX()+2; i<n; ++i) {
+      const double sig = h->sig->GetBinContent(i),
+                   bkg = h->bkg->GetBinContent(i);
+      h->signif->SetBinContent(i, fl*sig/sqrt(sig+bkg) );
+    }
+  }
+
+  // print expected numbers of events
+  for (auto* h : hsb::all) {
+    cout << "\033[32m" << h->signif->GetName()  << "\033[0m\n";
+    for (int i=1, n=h->sig->GetNbinsX()+2; i<n; ++i) {
+      cout << "[" << h->sig->GetBinLowEdge(i) << ',';
+      if (i==n-1) cout << "\\infty";
+      else cout << h->sig->GetBinLowEdge(i+1);
+      cout << ") "
+           << h->sig->GetBinContent(i) << ' '
+           << h->bkg->GetBinContent(i) << ' '
+           << h->signif->GetBinContent(i) << endl;
+    }
+    cout << endl;
+  }
+
+  h_N_j_30.signif->SetBinContent(5,0);
 
   auto fout = std::make_unique<TFile>(ofname.c_str(),"recreate");
   if (fout->IsZombie()) return 1;
@@ -235,15 +282,7 @@ int main(int argc, char* argv[])
     "The background is written multiplied by fw.";
   TNamed("note", ss.str().c_str()).Write();
 
-  for (auto* h : hsb::all) {
-    for (unsigned i=0, n=h->sig->GetNbinsX()+2; i<n; ++i) {
-      const double sig = h->sig->GetBinContent(i),
-                   bkg = h->bkg->GetBinContent(i);
-      h->signif->SetBinContent(i, fl*sig/sqrt(sig+bkg) );
-    }
-    h->signif->SetDirectory(fout.get());
-  }
-  h_N_j_30.signif->SetBinContent(5,0);
+  for (auto* h : hsb::all) h->signif->SetDirectory(fout.get());
 
   auto write_d = [](const char* name, const std::vector<double>& d){
     TVectorD v(d.size(),d.data());
