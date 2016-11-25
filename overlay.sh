@@ -5,7 +5,8 @@ rxplot signif.root signif2.root -o signif.pdf \
   --ticks-left --val-fmt="3.1f" --marker-size=2.2 --marker-color=1 \
   --xlabel-size=1.4 --xtitle-size=1.5 --xtitle-offset=1.0 \
   --ylabel-size=1.4 --ytitle-size=1.4 --ytitle-offset=1.0 \
-  -r 'y/^.*/s\/#sqrt{s+b}' 'ng' \
+  -r 'ng' 'is/(Dphi_Dy_jj|Dphi_pi4_Dy_jj|N_j_pT_yy)' \
+  'y/^.*/s\/#sqrt{s+b}' \
   'nx/^(pT|m)_.*/& [GeV]' \
   'x/pT_([^ ]*)/p_{T}^{\1}' \
   'x/yAbs_yy/|y_{#gamma#gamma}|' \
